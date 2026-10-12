@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --bg: #0a0908;
+  --panel: #12100e;
+  --line: rgba(232, 223, 208, 0.12);
+  --ivory: #f3eee4;
+  --champagne: #c4a574;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(196, 165, 116, 0.08), transparent 55%),
+    radial-gradient(900px 500px at 90% 0%, rgba(232, 223, 208, 0.04), transparent 50%),
+    linear-gradient(180deg, #0c0b09 0%, #0a0908 40%, #090807 100%);
+  color: var(--ivory);
+  font-family: "Outfit", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(196, 165, 116, 0.35);
+}
+
+@layer components {
+  .editorial-border {
+    @apply border border-ivory-200/10;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-sm bg-champagne-500 px-5 py-2.5 text-sm font-medium text-ink-950 transition hover:bg-champagne-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-champagne-400 disabled:opacity-50;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-sm border border-ivory-200/15 bg-transparent px-5 py-2.5 text-sm font-medium text-ivory-100 transition hover:border-champagne-500/50 hover:text-champagne-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-champagne-400;
+  }
+
+  .panel {
+    @apply rounded-sm border border-ivory-200/10 bg-ink-900/80 backdrop-blur-sm;
+  }
+
+  .label {
+    @apply mb-1.5 block text-xs uppercase tracking-[0.18em] text-ivory-300/60;
+  }
+
+  .field {
+    @apply w-full rounded-sm border border-ivory-200/15 bg-ink-950/60 px-3 py-2.5 text-sm text-ivory-100 placeholder:text-ivory-300/30 focus:border-champagne-500/60 focus:outline-none;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.7s ease-out both;
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 1.6s ease-in-out infinite;
+}

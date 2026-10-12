@@ -1,0 +1,35 @@
+services:
+  backend:
+    build:
+      context: .
+      target: backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: sqlite:///./data/pairwise.db
+      FRONTEND_ORIGIN: http://localhost:5173,http://localhost:80,http://localhost
+      LLM_PROVIDER: ${LLM_PROVIDER:-none}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      APP_ENV: production
+      MAX_CONCURRENT_DATES: ${MAX_CONCURRENT_DATES:-3}
+      DEFAULT_MAX_TURNS: ${DEFAULT_MAX_TURNS:-6}
+    volumes:
+      - pairwise-data:/app/data
+    command: >
+      sh -c "python -m app.seed_demo &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  frontend:
+    build:
+      context: .
+      target: frontend
+      args:
+        VITE_API_URL: ""
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  pairwise-data:
