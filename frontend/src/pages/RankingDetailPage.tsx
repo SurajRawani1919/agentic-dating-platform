@@ -41,7 +41,7 @@ export function RankingDetailPage() {
         </p>
         <h1 className="mt-2 font-display text-4xl text-ivory-50">{data.participant_name}</h1>
         <p className="mt-2 text-sm text-ivory-300/55">
-          {data.rankings.length} candidates · scores from persisted date evaluations
+          Who fits {data.participant_name.split(" ")[0]} best, out of the {data.rankings.length} people their agent dated
         </p>
       </div>
 
@@ -88,6 +88,15 @@ export function RankingDetailPage() {
                 <ConfidenceBar label="Confidence" value={r.confidence} />
               </div>
             </div>
+            {r.score_breakdown.personal_fit?.verdict && (
+              <p className="mt-3 border-l-2 border-champagne-500/50 pl-3 text-sm text-ivory-100/85">
+                {r.score_breakdown.personal_fit.verdict}
+                <span className="mt-1 block text-xs text-ivory-300/45">
+                  Their own agent scored this date {r.score_breakdown.personal_fit.own_agent_estimate};
+                  the other agent scored it {r.score_breakdown.personal_fit.their_agent_estimate}.
+                </span>
+              </p>
+            )}
             <div className="mt-4 grid gap-4 md:grid-cols-3">
               <div>
                 <h3 className="text-[11px] uppercase tracking-[0.14em] text-ivory-300/45">Why it may work</h3>

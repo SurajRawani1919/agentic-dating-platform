@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import re
 from typing import Any, TypeVar
 
 import httpx
@@ -71,6 +73,37 @@ class LLMProvider:
         }
         url = f"{self.settings.llm_base_url.rstrip('/')}/chat/completions"
 
+        # Dating runs make thousands of calls; ride out rate limits and blips.
+        attempts = self.settings.llm_max_retries + 1
+        for attempt in range(1, attempts + 1):
+            try:
+                data = await self._post(url, headers, payload)
+                break
+            except LLMError as exc:
+                if not exc.retryable or attempt == attempts:
+                    raise
+                await asyncio.sleep(1.5 * attempt)
+
+        try:
+            content = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise LLMError("Unexpected LLM response shape", retryable=False) from exc
+
+        try:
+            parsed = json.loads(_strip_fences(content))
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise LLMError("LLM returned non-JSON content", retryable=False) from exc
+
+        try:
+            validated = schema_model.model_validate(parsed)
+        except ValidationError as exc:
+            raise LLMError(f"LLM JSON failed schema validation: {exc}", retryable=False) from exc
+
+        return validated, self.settings.llm_model
+
+    async def _post(
+        self, url: str, headers: dict[str, str], payload: dict[str, Any]
+    ) -> dict[str, Any]:
         try:
             async with httpx.AsyncClient(timeout=self.settings.llm_timeout_seconds) as client:
                 response = await client.post(url, headers=headers, json=payload)
@@ -89,21 +122,14 @@ class LLMProvider:
                 f"LLM request rejected ({response.status_code})",
                 retryable=False,
             )
-
-        data: dict[str, Any] = response.json()
         try:
-            content = data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise LLMError("Unexpected LLM response shape", retryable=False) from exc
+            return response.json()
+        except ValueError as exc:
+            raise LLMError("LLM returned a non-JSON response body", retryable=True) from exc
 
-        try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError as exc:
-            raise LLMError("LLM returned non-JSON content", retryable=False) from exc
 
-        try:
-            validated = schema_model.model_validate(parsed)
-        except ValidationError as exc:
-            raise LLMError(f"LLM JSON failed schema validation: {exc}", retryable=False) from exc
-
-        return validated, self.settings.llm_model
+def _strip_fences(content: Any) -> str:
+    """Unwrap ```json fences that some OpenAI-compatible models add around JSON."""
+    text = str(content or "").strip()
+    match = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, flags=re.DOTALL)
+    return match.group(1) if match else text

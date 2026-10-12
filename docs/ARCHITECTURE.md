@@ -1,6 +1,6 @@
 # Architecture
 
-PAIRWISE is an agentic dating platform where each consenting adult is represented by an independent AI agent.
+PAIRWISE is an agentic dating site where each person is represented by an independent agent that reads their public LinkedIn and Instagram.
 
 ```mermaid
 flowchart LR
@@ -12,23 +12,23 @@ flowchart LR
   API --> Rank[Ranking Engine]
   Analysis --> LLM[LLM Provider Abstraction]
   Agents --> LLM
-  Src -->|authorized text fallback| DB
+  Src -->|reads linkedin.com + instagram.com| DB
 ```
 
 ## Layers
 
-1. **Source acquisition** — validates LinkedIn/Instagram URLs, applies SSRF protections, and records provenance. Automated scraping is not used when platforms block access; participants may supply authorized profile text.
-2. **Profile analysis** — structured JSON analysis with evidence validation against source text. Live LLM when configured; otherwise a clearly labeled deterministic analyzer.
+1. **Source acquisition** — validates the two URLs (SSRF-safe), reads both public profile pages live, refuses private Instagram accounts, and records how each source was read. Pasted profile text is only a fallback when a platform blocks the read.
+2. **Profile analysis** — needs, hobbies, interests, values, personality, lifestyle. Every claim must quote the source text or it is dropped. LLM when configured; otherwise a labeled rule-based analyzer.
 3. **Independent agents** — each agent sees only its own public analysis view plus the shared transcript. No private cross-reads.
 4. **Dating orchestration** — bounded-concurrency multi-turn sessions with immediate message persistence, cancel/resume, and mutual evaluations.
-5. **Ranking** — weighted, explainable scores from persisted analyses + evaluations (shared interests 30%, preferences 30%, conversation 25%, lifestyle 15%).
+5. **Ranking** — mutual session score (conversation 35%, shared interests 30%, needs and values 25%, lifestyle 10%), then a personal ranking per person: 50% own agent's verdict, 30% mutual score, 20% the other agent's verdict.
 
 ## Modes
 
 | Mode | Data | LLM |
 |------|------|-----|
-| Demo | 25 synthetic participants, 300 pairs, 600 rankings | Not required; transcripts labeled demo replay |
-| Live | Consented real submissions | Requires `LLM_API_KEY` |
+| Live | Real people read from their two public links | LLM agents with `LLM_API_KEY`; rule-based agents without |
+| Synthetic sample | 25 invented placeholders, shown only until a real run exists | Not used |
 
 ## Security notes
 

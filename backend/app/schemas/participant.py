@@ -12,21 +12,20 @@ class SourceContentInput(BaseModel):
 
 
 class ParticipantCreate(BaseModel):
-    display_name: str = Field(min_length=1, max_length=200)
+    # Optional: the name is read from the profiles when left blank.
+    display_name: str = Field(default="", max_length=200)
     linkedin_url: str = Field(min_length=8, max_length=500)
     instagram_url: str = Field(min_length=8, max_length=500)
     adult_eligibility_confirmed: bool
     consent_to_agent_dating: bool
+    # Fallback only, for when a platform blocks the automatic read.
     linkedin_text: str = Field(default="", max_length=20000)
     instagram_text: str = Field(default="", max_length=20000)
 
     @field_validator("display_name")
     @classmethod
     def strip_name(cls, v: str) -> str:
-        name = v.strip()
-        if not name:
-            raise ValueError("display_name is required")
-        return name
+        return v.strip()
 
     @field_validator("linkedin_url")
     @classmethod
@@ -55,6 +54,8 @@ class SourceRecordOut(BaseModel):
     acquisition_status: str
     verification_notes: str
     permitted_content_preview: str
+    # Full text the agent read; only populated on the participant detail endpoint.
+    content: str = ""
     fetched_at: datetime | None
 
     model_config = {"from_attributes": True}
@@ -73,27 +74,61 @@ class ParticipantOut(BaseModel):
     updated_at: datetime
     sources: list[SourceRecordOut] = []
     has_analysis: bool = False
+    headline: str = ""
 
     model_config = {"from_attributes": True}
 
 
 class EvidenceItem(BaseModel):
     value: str
-    evidence: str
-    source_type: Literal["linkedin", "instagram", "conversation"]
-    confidence: float = Field(ge=0, le=1)
+    evidence: str = ""
+    source_type: Literal["linkedin", "instagram", "conversation"] = "linkedin"
+    confidence: float = Field(ge=0, le=1, default=0.5)
+    # One line on how the evidence supports the claim (used for inferred needs).
+    why: str = ""
+
+    @field_validator("source_type", mode="before")
+    @classmethod
+    def coerce_source(cls, v: Any) -> str:
+        text = str(v or "").lower()
+        if "insta" in text:
+            return "instagram"
+        if "conversation" in text:
+            return "conversation"
+        return "linkedin"
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def coerce_confidence(cls, v: Any) -> float:
+        try:
+            number = float(v)
+        except (TypeError, ValueError):
+            return 0.5
+        if number > 1:  # models sometimes answer on a 0-100 scale
+            number /= 100
+        return max(0.0, min(1.0, number))
+
+    @field_validator("value", "evidence", "why", mode="before")
+    @classmethod
+    def coerce_text(cls, v: Any) -> str:
+        return "" if v is None else str(v)
 
 
 class AnalysisOut(BaseModel):
     id: int
     participant_id: int
+    headline: str = ""
     summary: str
+    needs: list[Any] = []
     interests: list[Any]
     hobbies: list[Any]
+    core_values: list[Any] = []
+    personality_traits: list[Any] = []
     explicitly_stated_preferences: list[Any]
     communication_clues: list[Any]
     lifestyle_clues: list[Any]
     relationship_preferences: list[Any]
+    ideal_date: str = ""
     evidence_items: list[Any]
     uncertainty_notes: list[Any]
     confidence_by_attribute: dict[str, Any]
@@ -108,17 +143,33 @@ class AnalysisOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    # Rows written before these columns existed hold NULL.
+    @field_validator("needs", "core_values", "personality_traits", mode="before")
+    @classmethod
+    def null_list(cls, v: Any) -> list[Any]:
+        return v or []
+
+    @field_validator("headline", "ideal_date", mode="before")
+    @classmethod
+    def null_text(cls, v: Any) -> str:
+        return v or ""
+
 
 class AnalysisResultSchema(BaseModel):
-    """Structured LLM / deterministic analysis output."""
+    """Structured LLM / rule-based analysis output."""
 
+    headline: str = ""
     summary: str
+    needs: list[EvidenceItem] = []
     interests: list[EvidenceItem] = []
     hobbies: list[EvidenceItem] = []
+    values: list[EvidenceItem] = []
+    personality_traits: list[EvidenceItem] = []
     explicit_preferences: list[EvidenceItem] = []
     communication_clues: list[EvidenceItem] = []
     lifestyle_clues: list[EvidenceItem] = []
     relationship_preferences: list[EvidenceItem] = []
+    ideal_date: str = ""
     contradictions: list[str] = []
     uncertainties: list[str] = []
     missing_information: list[str] = []

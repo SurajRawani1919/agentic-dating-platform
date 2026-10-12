@@ -14,7 +14,8 @@ from slowapi.util import get_remote_address
 from app import __version__
 from app.api import dates, demo, health, participants, rankings, runs, settings as settings_api
 from app.core.config import get_settings
-from app.db.base import Base
+from app.cohort import restore_snapshot_if_empty
+from app.db.migrate import ensure_schema
 from app.db.session import engine
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -28,7 +29,8 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     if settings.is_sqlite:
         Path("data").mkdir(parents=True, exist_ok=True)
-    Base.metadata.create_all(bind=engine)
+    ensure_schema(engine)
+    restore_snapshot_if_empty()
     logger.info("PAIRWISE API starting (env=%s, llm=%s)", settings.app_env, settings.llm_configured)
     yield
 

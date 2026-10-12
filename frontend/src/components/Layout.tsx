@@ -3,8 +3,8 @@ import { Sparkles } from "lucide-react";
 
 const links = [
   { to: "/", label: "Home" },
-  { to: "/app", label: "Workspace" },
-  { to: "/participants", label: "Participants" },
+  { to: "/app", label: "Add people" },
+  { to: "/participants", label: "Profiles" },
   { to: "/dates", label: "Dates" },
   { to: "/rankings", label: "Rankings" },
   { to: "/demo", label: "Demo" },
@@ -69,7 +69,7 @@ export function Layout() {
         <Outlet />
       </main>
       <footer className="border-t border-ivory-200/10 py-8 text-center text-xs text-ivory-300/40">
-        Consenting adults only · Evidence-grounded agents · Demo data is synthetic
+        Two sources only: public LinkedIn + public Instagram · Every claim quotes its evidence
       </footer>
     </div>
   );

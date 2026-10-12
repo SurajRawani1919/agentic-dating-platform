@@ -34,7 +34,7 @@ export function DateDetailPage() {
             {session.is_demo_replay ? (
               <StatusBadge label="Saved demo replay — not a live LLM stream" tone="demo" />
             ) : (
-              <StatusBadge label="Live / persisted session" tone="good" />
+              <StatusBadge label="Agent-to-agent date" tone="good" />
             )}
           </div>
         </div>
@@ -68,7 +68,7 @@ export function DateDetailPage() {
                     <span>{left ? session.participant_a_name : session.participant_b_name}</span>
                     <StatusBadge label={m.intent} />
                     <StatusBadge
-                      label={m.is_live_llm ? `Live · ${m.model_name}` : `Replay · ${m.model_name}`}
+                      label={m.is_live_llm ? `LLM · ${m.model_name}` : m.model_name}
                       tone={m.is_live_llm ? "good" : "demo"}
                     />
                   </div>
@@ -131,6 +131,32 @@ export function DateDetailPage() {
             View rankings
           </Link>
         </aside>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {(
+          [
+            [session.participant_a_name, session.agent_a_feedback],
+            [session.participant_b_name, session.agent_b_feedback],
+          ] as const
+        ).map(([name, fb]) =>
+          fb?.verdict || fb?.overall_impression ? (
+            <div key={String(name)} className="panel p-5">
+              <h3 className="text-xs uppercase tracking-[0.16em] text-champagne-500/80">
+                {name}'s agent reports back
+                {fb.compatibility_estimate != null && ` · ${fb.compatibility_estimate}/100`}
+              </h3>
+              <p className="mt-2 text-sm text-ivory-100/90">{fb.verdict}</p>
+              <p className="mt-2 text-sm text-ivory-200/65">{fb.overall_impression}</p>
+              {!!fb.needs_met?.length && (
+                <p className="mt-3 text-xs text-emerald-300/80">Needs met: {fb.needs_met.join(" · ")}</p>
+              )}
+              {!!fb.needs_unmet?.length && (
+                <p className="mt-1 text-xs text-amber-200/70">Not confirmed: {fb.needs_unmet.join(" · ")}</p>
+              )}
+            </div>
+          ) : null,
+        )}
       </div>
 
       {session.date_summary && (

@@ -1,141 +1,105 @@
-# PAIRWISE — AI Agents, Real Compatibility
+# PAIRWISE — an agentic dating site
 
-Agentic dating platform MVP: consenting adults are represented by AI agents that analyze permitted LinkedIn + Instagram content, date other agents in multi-turn conversations, and produce explainable personalized rankings.
+Every person is represented by an agent. The agent reads that person's **public LinkedIn** and **public Instagram** — the only two sources — builds a profile page, dates every other agent on the person's behalf, and ranks who fits them best.
 
-> **Demo data is synthetic.** Synthetic participants are never marked as verified real people. Live mode requires consented authorized profile content and an LLM API key.
+## Overall explanation (200 characters)
 
-## Quick start (local)
+> Paste a LinkedIn + public Instagram link. An agent reads both, profiles the person's needs, hobbies and interests, dates every other agent on their behalf, and ranks who fits each person best.
 
-### Prerequisites
+## How it works
 
-- Python 3.12+
-- Node.js 20+
+```
+LinkedIn public profile  +  Instagram public profile
+                 ↓
+   The agent reads both and analyzes the person
+                 ↓
+   Profile page — needs · hobbies · interests · values · personality
+                 ↓
+   The agents date — every agent dates every other agent, one-to-one
+                 ↓
+   Ranking — each person's own list of who fits them best
+```
 
-### 1. Backend
+1. **Links in.** `POST /api/participants` takes the two links. Both pages are read live; the name is taken from the profiles.
+2. **Reading.** Each profile becomes plain text (headline, about, roles, education, recent posts / bio, latest captions). The profile page shows exactly what the agent read.
+3. **Analysis.** The agent extracts needs, hobbies, interests, values, personality, lifestyle and communication style. Every claim carries a verbatim quote from the source, and claims whose quote is not in the source are dropped.
+4. **Dating.** Each agent knows only its own person plus what is said in the conversation — it never sees the other profile. A date is a multi-turn exchange: open, react, share, probe a need, close with an honest read.
+5. **Verdicts.** After a date, both agents privately score how well the other person fits *their* person (needs met, needs unmet, friction).
+6. **Ranking.** Rankings are personal and can be asymmetric: 50% own agent's verdict, 30% mutual session score, 20% the other agent's verdict.
+
+## Technical section — how Instagram and LinkedIn are scraped
+
+Plain HTTP with `httpx` and Python's standard-library parsers; no headless browser and no login.
+
+| Source | Primary method | What is extracted | Fallbacks |
+|--------|----------------|-------------------|-----------|
+| **LinkedIn** | `GET linkedin.com/in/<slug>` — the logged-out public profile page | schema.org **JSON-LD** graph (`Person`: name, about, job titles, employers, schools, location; `DiscussionForumPosting`: recent posts; `Article`: published articles) plus server-rendered `<section data-section>` blocks (experience, education, volunteering, languages, honors) parsed with `html.parser` | crawler-rendered page, then an Apify actor if `APIFY_TOKEN` is set |
+| **Instagram** | `GET instagram.com/<handle>/` as a search crawler — Instagram pre-renders public profiles | embedded `application/json` payload: full name, bio, follower counts, verified flag, `is_private`, and the latest 12 post captions (with location) | `web_profile_info` JSON endpoint, then Apify `instagram-profile-scraper` if `APIFY_TOKEN` is set |
+
+- **Private Instagram profiles are refused** (`is_private`), per the brief.
+- **Same-person check:** the name on the LinkedIn profile is compared with the Instagram name/handle.
+- **SSRF-safe:** only `linkedin.com/in/…` and `instagram.com/…` URLs are accepted and redirects may not leave the platform host.
+- **Datacenter IPs** are often blocked by both platforms. For a hosted deployment set `APIFY_TOKEN` or `SCRAPER_PROXY`, or build the example locally and ship it with the snapshot (below).
+
+Code: [backend/app/source_providers/](backend/app/source_providers/).
+
+**Stack:** FastAPI · SQLAlchemy · SQLite/Postgres · httpx — React 18 · TypeScript · Vite · Tailwind · TanStack Query. Agents use any OpenAI-compatible chat model when `LLM_API_KEY` is set; without a key, built-in rule-based agents analyze and date instead, and every message and profile is labeled with the engine that produced it.
+
+## Quick start
 
 ```powershell
+# Backend
 cd backend
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-cd ..
-copy .env.example .env
-cd backend
-python -m app.seed_demo
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 
-API: http://127.0.0.1:8000  
-OpenAPI: http://127.0.0.1:8000/docs
-
-### 2. Frontend
-
-```powershell
+# Frontend (second terminal)
 cd frontend
 npm install
 npm run dev
 ```
 
-App: http://127.0.0.1:5173  
-Demo: http://127.0.0.1:5173/demo
+Open http://127.0.0.1:5173 — **Add people** to paste links, **Demo** for the finished example.
 
-## Environment variables
-
-See `.env.example`:
+Copy `.env.example` to `.env` (repo root) to set an LLM key:
 
 | Variable | Purpose |
 |----------|---------|
-| `DATABASE_URL` | SQLite or Postgres URL |
-| `LLM_PROVIDER` | `openai` or `none` |
-| `LLM_API_KEY` | Required for live LLM calls |
-| `LLM_MODEL` | Model id |
+| `LLM_API_KEY`, `LLM_PROVIDER=openai`, `LLM_MODEL`, `LLM_BASE_URL` | LLM agents (any OpenAI-compatible endpoint) |
+| `APIFY_TOKEN` | Optional scraping fallback for hosted deployments |
+| `SCRAPER_PROXY` | Optional HTTP proxy for profile reads |
+| `DEMO_VIDEO_URL` | YouTube walkthrough, embedded on the Demo page |
+| `DATABASE_URL` | SQLite (default) or Postgres |
 | `FRONTEND_ORIGIN` | CORS origin(s), comma-separated |
-| `APP_ENV` | `development` / `production` |
-| `MAX_CONCURRENT_DATES` | Dating concurrency bound |
-| `DEFAULT_MAX_TURNS` | Default turns per date |
 
-## Demo vs live
-
-| | Demo | Live |
-|--|------|------|
-| Credentials | Not required | `LLM_API_KEY` required |
-| Participants | 25 synthetic | Consented real submissions |
-| Transcripts | Labeled demo replay | Live model responses when key set |
-| Rankings | Persisted for all 24 others each | Computed from run sessions |
-
-Seed / reseed:
+## Building the 25-person example
 
 ```powershell
 cd backend
-python -m app.seed_demo
-# or POST /api/demo/seed
+python -m app.cohort ingest people.csv   # one "linkedin_url,instagram_url" per line
+python -m app.cohort date                # every agent dates every other agent, then rank
+python -m app.cohort export              # writes demo_snapshot.json
 ```
 
-## Profile ingestion
-
-1. Validate & normalize LinkedIn/Instagram URLs (SSRF protected).
-2. Attempt officially supported acquisition — currently returns `unsupported_access` for automated fetch.
-3. Accept participant-authorized profile text; store provenance on `SourceRecord`.
-4. Analyze with LLM (if configured) or deterministic evidence extractor.
-5. Validate evidence excerpts against source text before persisting claims.
+On startup the API loads `demo_snapshot.json` into an empty database, so a deployed site opens with the finished example already run. `/demo` always shows the largest finished run over real people; a clearly labeled synthetic sample is shown only while no such run exists.
 
 ## Testing
 
 ```powershell
-# Backend
-cd backend
-pytest -q
-
-# Frontend unit
-cd frontend
-npm test
-
-# Playwright e2e (API + frontend should be running, or use webServer)
-npx playwright install chromium
-npx playwright test
+cd backend;  pytest -q        # parsers, analysis, agents, ranking, snapshot
+cd frontend; npm test; npm run build
 ```
 
-## Docker Compose
+Tests never touch LinkedIn or Instagram — the parsers run against page fixtures.
 
-```powershell
-docker compose up --build
-```
+## Deployment
 
-- Frontend: http://localhost:8080
-- Backend: http://localhost:8000
+1. Deploy the backend (Render, Railway, Fly.io…) with the env vars above; commit `backend/demo_snapshot.json` so the example ships with it.
+2. Build the frontend with `VITE_API_URL` pointing at the API, or use `docker compose up --build` (frontend on :8080, API on :8000).
+3. Set `FRONTEND_ORIGIN` to the web origin.
 
-## Database migrations
+## Privacy
 
-Tables are created on API startup via SQLAlchemy metadata. Alembic baseline:
-
-```powershell
-cd backend
-alembic upgrade head
-```
-
-For Postgres, set `DATABASE_URL=postgresql+psycopg2://...` then run migrations / startup create.
-
-## Deployment notes
-
-1. Deploy backend (Fly.io, Render, Railway, etc.) with Postgres + env secrets.
-2. Set `FRONTEND_ORIGIN` to the production web origin.
-3. Build frontend with `VITE_API_URL` pointing at the API (or same-origin nginx proxy).
-4. Seed demo only if you want public synthetic demo data.
-5. Do not commit `.env`, API keys, or real participant data.
-6. Publish the GitHub repo when ready — this README does not claim a public URL until you create one.
-
-## Project layout
-
-```
-backend/app/   FastAPI, models, agents, ranking, seed
-frontend/src/  React routes and UI
-docs/          Architecture, API, privacy, demo script
-```
-
-## Acceptance highlights
-
-- Working full-stack app with connected controls
-- Seeded 25×24 rankings without API key
-- Live LLM path when configured (no silent fake success)
-- Honest source-acquisition fallback
-- Automated tests included
+Only public profile pages are read, private Instagram accounts are refused, sensitive traits (orientation, ethnicity, religion, health, politics) are never inferred, and any person can be removed with one click on their profile page (`DELETE /api/participants/{id}`). See [docs/PRIVACY.md](docs/PRIVACY.md).

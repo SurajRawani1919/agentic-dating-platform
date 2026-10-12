@@ -42,19 +42,38 @@ export function SettingsPage() {
           </div>
         </dl>
         <div className="mt-6 space-y-2 text-sm text-ivory-300/55">
-          {(settings.data?.notes as string[] | undefined)?.map((n) => (
+          {settings.data?.notes?.map((n) => (
             <p key={n}>• {n}</p>
           ))}
         </div>
       </div>
 
+      <div className="panel p-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="font-display text-2xl text-ivory-50">Profile readers</h2>
+          <StatusBadge
+            label={settings.data?.scraping_enabled ? "Reading live from links" : "Disabled"}
+            tone={settings.data?.scraping_enabled ? "good" : "warn"}
+          />
+          <StatusBadge label={settings.data?.apify_configured ? "Apify fallback on" : "Apify fallback off"} />
+        </div>
+        <ul className="mt-4 space-y-2 text-sm text-ivory-200/70">
+          {(settings.data?.profile_readers ?? []).map((r) => (
+            <li key={r}>• {r}</li>
+          ))}
+        </ul>
+      </div>
+
       <div className="panel p-6 text-sm text-ivory-200/70">
-        <h2 className="font-display text-2xl text-ivory-50">Live mode checklist</h2>
+        <h2 className="font-display text-2xl text-ivory-50">How the agents run</h2>
         <ol className="mt-4 list-decimal space-y-2 pl-5">
-          <li>Set <code className="text-champagne-400">LLM_API_KEY</code> and <code className="text-champagne-400">LLM_PROVIDER</code> in the server <code>.env</code>.</li>
-          <li>Restart the API.</li>
-          <li>Submit consented LinkedIn + Instagram URLs with authorized profile text when acquisition is unsupported.</li>
-          <li>Analyze profiles, then create a <strong>live</strong> dating run.</li>
+          <li>Paste a LinkedIn link and a public Instagram link. Both pages are read live.</li>
+          <li>The person's agent analyzes them: needs, hobbies, interests and other qualities.</li>
+          <li>Start dating: every agent dates every other agent and files a private verdict.</li>
+          <li>
+            With <code className="text-champagne-400">LLM_API_KEY</code> set on the server the agents are
+            LLM-driven; without it, built-in rule-based agents do the same job and are labeled as such.
+          </li>
         </ol>
       </div>
     </div>

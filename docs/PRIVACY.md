@@ -1,12 +1,12 @@
 # Privacy & Consent
 
-PAIRWISE is designed for consenting adults only.
+PAIRWISE reads only public profile pages of adults.
 
 ## Consent
 
 - Adult eligibility confirmation is required at enrollment.
 - Explicit consent for agent dating is required.
-- Only two information sources are used: the participant’s LinkedIn and Instagram (via permitted/authorized content).
+- Only two information sources are used: the person's public LinkedIn and public Instagram. Private Instagram accounts are refused.
 
 ## Data handling
 

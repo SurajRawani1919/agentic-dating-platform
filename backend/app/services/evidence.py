@@ -48,8 +48,11 @@ def validate_analysis_against_sources(
 ) -> dict[str, Any]:
     result = dict(analysis)
     for key in (
+        "needs",
         "interests",
         "hobbies",
+        "values",
+        "personality_traits",
         "explicit_preferences",
         "communication_clues",
         "lifestyle_clues",

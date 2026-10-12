@@ -1,7 +1,36 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+_INTENTS = {
+    "open",
+    "learn_preferences",
+    "share_interest",
+    "clarify",
+    "address_friction",
+    "close",
+    "evaluate",
+}
+
+
+def _unit_interval(value: Any) -> float:
+    """Coerce a model-provided score onto 0-1 (models sometimes answer 0-100)."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.5
+    if number > 1:
+        number /= 100
+    return max(0.0, min(1.0, number))
+
+
+def _string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    items = value if isinstance(value, list) else [value]
+    return [str(i).strip() for i in items if str(i).strip()][:12]
 
 
 class AgentMessageSchema(BaseModel):
@@ -19,15 +48,74 @@ class AgentMessageSchema(BaseModel):
     ] = "learn_preferences"
     confidence: float = Field(ge=0, le=1, default=0.5)
 
+    @field_validator("question", mode="before")
+    @classmethod
+    def _question(cls, v: Any) -> str:
+        return "" if v is None else str(v)
+
+    @field_validator("intent", mode="before")
+    @classmethod
+    def _intent(cls, v: Any) -> str:
+        text = str(v or "").strip().lower()
+        return text if text in _INTENTS else "learn_preferences"
+
+    @field_validator("referenced_interests", mode="before")
+    @classmethod
+    def _interests(cls, v: Any) -> list[str]:
+        return _string_list(v)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _confidence(cls, v: Any) -> float:
+        return _unit_interval(v)
+
 
 class AgentEvaluationSchema(BaseModel):
-    overall_impression: str
+    """One agent's private verdict on how well the other person fits its own person."""
+
+    verdict: str = ""
+    overall_impression: str = ""
     shared_interests: list[str] = []
+    needs_met: list[str] = []
+    needs_unmet: list[str] = []
     potential_friction: list[str] = []
     unanswered_questions: list[str] = []
     compatibility_estimate: float = Field(ge=0, le=100)
-    confidence: float = Field(ge=0, le=1)
-    reasoning: str
+    confidence: float = Field(ge=0, le=1, default=0.5)
+    reasoning: str = ""
+
+    @field_validator(
+        "shared_interests",
+        "needs_met",
+        "needs_unmet",
+        "potential_friction",
+        "unanswered_questions",
+        mode="before",
+    )
+    @classmethod
+    def _lists(cls, v: Any) -> list[str]:
+        return _string_list(v)
+
+    @field_validator("verdict", "overall_impression", "reasoning", mode="before")
+    @classmethod
+    def _text(cls, v: Any) -> str:
+        return "" if v is None else str(v)
+
+    @field_validator("compatibility_estimate", mode="before")
+    @classmethod
+    def _estimate(cls, v: Any) -> float:
+        try:
+            number = float(v)
+        except (TypeError, ValueError):
+            return 50.0
+        if 0 < number <= 1:  # answered as a fraction
+            number *= 100
+        return max(0.0, min(100.0, number))
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _confidence(cls, v: Any) -> float:
+        return _unit_interval(v)
 
 
 class RunCreate(BaseModel):

@@ -26,6 +26,9 @@ if settings.is_sqlite:
     def _set_sqlite_pragma(dbapi_connection, connection_record):  # noqa: ARG001
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        # Dates run concurrently and each commits per turn.
+        cursor.execute("PRAGMA busy_timeout=20000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.close()
 
 

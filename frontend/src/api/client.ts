@@ -1,13 +1,27 @@
 import type {
   Analysis,
+  DateMessage,
   DateSession,
   DemoPayload,
+  NewParticipant,
   Participant,
+  PublicSettings,
   Ranking,
   Run,
 } from "../types";
 
 const BASE = import.meta.env.VITE_API_URL ?? "";
+
+/** FastAPI validation errors arrive as a list of {msg}; flatten them for display. */
+function describeError(detail: unknown): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d) => String((d as { msg?: string }).msg ?? JSON.stringify(d)).replace(/^Value error, /, ""))
+      .join(" ");
+  }
+  return JSON.stringify(detail);
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -18,14 +32,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   if (!res.ok) {
-    let detail = res.statusText;
+    let detail: unknown = res.statusText;
     try {
       const body = await res.json();
-      detail = body.detail ?? JSON.stringify(body);
+      detail = body.detail ?? body;
     } catch {
       /* ignore */
     }
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    throw new Error(describeError(detail));
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -33,26 +47,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => request<{ status: string; llm_configured: boolean }>("/api/health"),
-  settings: () => request<Record<string, unknown>>("/api/settings"),
+  settings: () => request<PublicSettings>("/api/settings"),
   participants: {
-    list: (page = 1, pageSize = 50) =>
+    list: (page = 1, pageSize = 50, synthetic?: boolean) =>
       request<{ items: Participant[]; total: number }>(
-        `/api/participants?page=${page}&page_size=${pageSize}`,
+        `/api/participants?page=${page}&page_size=${pageSize}` +
+          (synthetic === undefined ? "" : `&synthetic=${synthetic}`),
       ),
     get: (id: number) => request<Participant>(`/api/participants/${id}`),
-    create: (body: Record<string, unknown>) =>
+    /** Reads both profiles and analyzes the person in one call. */
+    create: (body: NewParticipant) =>
       request<Participant>("/api/participants", {
         method: "POST",
         body: JSON.stringify(body),
       }),
     remove: (id: number) =>
       request<void>(`/api/participants/${id}`, { method: "DELETE" }),
+    refresh: (id: number) =>
+      request<Participant>(`/api/participants/${id}/refresh`, { method: "POST" }),
     analyze: (id: number) =>
       request<Analysis>(`/api/participants/${id}/analyze`, { method: "POST" }),
     analysis: (id: number) =>
       request<Analysis>(`/api/participants/${id}/analysis`),
   },
   runs: {
+    list: () => request<Run[]>("/api/runs"),
     create: (body: Record<string, unknown>) =>
       request<Run>("/api/runs", { method: "POST", body: JSON.stringify(body) }),
     get: (id: number) => request<Run>(`/api/runs/${id}`),
@@ -68,7 +87,7 @@ export const api = {
   dates: {
     get: (id: number) => request<DateSession>(`/api/dates/${id}`),
     transcript: (id: number) =>
-      request<{ session: DateSession; messages: import("../types").DateMessage[] }>(
+      request<{ session: DateSession; messages: DateMessage[] }>(
         `/api/dates/${id}/transcript`,
       ),
   },

@@ -1,6 +1,8 @@
-"""Seed a deterministic 25-participant demo dataset.
+"""Seed a deterministic 25-participant SYNTHETIC sample.
 
-Synthetic participants are clearly labeled. Never presented as verified real people.
+A stand-in so the UI is explorable before any real people are added. It is
+labeled synthetic everywhere and is superseded on /demo by the first finished
+run over real people (see app.cohort).
 
 Usage:
   python -m app.seed_demo
@@ -11,7 +13,7 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timezone
 
-from app.db.base import Base
+from app.db.migrate import ensure_schema
 from app.db.session import SessionLocal, engine
 from app.models import (
     DateMessage,
@@ -23,7 +25,7 @@ from app.models import (
     SourceRecord,
 )
 from app.ranking.engine import aggregate_rankings, compute_session_scores
-from app.services.analysis import deterministic_analysis
+from app.services.analysis import deterministic_analysis, public_analysis_view
 from app.services.dating import unique_pairs
 
 DEMO_RUN_NAME = "PAIRWISE Demo Run — Synthetic Cohort"
@@ -242,7 +244,7 @@ def _rich_transcript(a: Participant, b: Participant, session_id: int) -> list[di
 
 
 def seed_demo(*, reset: bool = True) -> int:
-    Base.metadata.create_all(bind=engine)
+    ensure_schema(engine)
     db = SessionLocal()
     try:
         existing = (
@@ -314,12 +316,17 @@ def seed_demo(*, reset: bool = True) -> int:
                 )
             )
 
-            result = deterministic_analysis(li_text, ig_text)
+            result = deterministic_analysis(li_text, ig_text, persona["name"])
             analysis = ProfileAnalysis(
                 participant_id=p.id,
+                headline=result["headline"],
                 summary=result["summary"],
+                needs=result["needs"],
                 interests=result["interests"],
                 hobbies=result["hobbies"],
+                core_values=result["values"],
+                personality_traits=result["personality_traits"],
+                ideal_date=result["ideal_date"],
                 explicitly_stated_preferences=result["explicit_preferences"],
                 communication_clues=result["communication_clues"],
                 lifestyle_clues=result["lifestyle_clues"],
@@ -331,8 +338,8 @@ def seed_demo(*, reset: bool = True) -> int:
                 source_coverage=result["source_coverage"],
                 contradictions=result["contradictions"],
                 missing_information=result["missing_information"],
-                model_name="deterministic-v1",
-                prompt_version="v1",
+                model_name="deterministic-v2",
+                prompt_version="v2",
                 status="completed",
                 is_demo=True,
             )
@@ -392,20 +399,8 @@ def seed_demo(*, reset: bool = True) -> int:
                 "reasoning": "Deterministic demo evaluation from profile overlap.",
             }
             scored = compute_session_scores(
-                analysis_a={
-                    "interests": pa.interests,
-                    "hobbies": pa.hobbies,
-                    "explicitly_stated_preferences": pa.explicitly_stated_preferences,
-                    "lifestyle_clues": pa.lifestyle_clues,
-                    "relationship_preferences": pa.relationship_preferences,
-                },
-                analysis_b={
-                    "interests": pb.interests,
-                    "hobbies": pb.hobbies,
-                    "explicitly_stated_preferences": pb.explicitly_stated_preferences,
-                    "lifestyle_clues": pb.lifestyle_clues,
-                    "relationship_preferences": pb.relationship_preferences,
-                },
+                analysis_a=public_analysis_view(pa),
+                analysis_b=public_analysis_view(pb),
                 eval_a=eval_a,
                 eval_b=eval_b,
                 transcript=[{"x": 1}] * 6,

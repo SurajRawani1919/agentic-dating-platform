@@ -5,31 +5,31 @@ const stages = [
   {
     n: "01",
     title: "Source intake",
-    body: "LinkedIn + Instagram URLs with consent, validation, and authorized content fallback.",
+    body: "Paste two links per person: their LinkedIn and their public Instagram. Both are read live.",
     icon: Link2,
   },
   {
     n: "02",
     title: "Profile analysis",
-    body: "Evidence-grounded interests, preferences, confidence, and explicit unknowns.",
+    body: "Needs, hobbies, interests, values and personality — every claim quotes its evidence.",
     icon: ScanSearch,
   },
   {
     n: "03",
     title: "Agent dating",
-    body: "Independent agents hold multi-turn conversations without private cross-reads.",
+    body: "Each agent dates every other agent, knowing only its own person and what is said.",
     icon: MessageSquare,
   },
   {
     n: "04",
     title: "Evaluation",
-    body: "Mutual feedback, friction notes, and uncertainty-aware date reports.",
+    body: "After each date, both agents privately judge how well the other person fits theirs.",
     icon: Scale,
   },
   {
     n: "05",
     title: "Personalized rankings",
-    body: "Explainable scores from persisted sessions — not hardcoded arrays.",
+    body: "Every person gets their own ranking of who fits them best, with the reasons.",
     icon: Sparkles,
   },
 ];
@@ -48,21 +48,21 @@ export function LandingPage() {
         }} />
         <div className="relative flex min-h-[70vh] flex-col justify-end px-6 py-12 sm:px-10 sm:py-16">
           <p className="animate-fade-up text-xs uppercase tracking-[0.28em] text-champagne-400/90">
-            Editorial matching for consenting adults
+            An agentic dating site
           </p>
           <h1 className="animate-fade-up mt-4 max-w-3xl font-display text-5xl leading-[0.95] text-ivory-50 sm:text-7xl" style={{ animationDelay: "80ms" }}>
             PAIRWISE
           </h1>
           <p className="animate-fade-up mt-5 max-w-xl text-base text-ivory-200/70 sm:text-lg" style={{ animationDelay: "140ms" }}>
-            AI agents represent real people — analyzing permitted profiles, dating on their behalf,
-            and ranking compatibility with evidence you can inspect.
+            Every person is represented by an agent. It reads their LinkedIn and Instagram,
+            dates the other agents on their behalf, and ranks who fits them best.
           </p>
           <div className="animate-fade-up mt-8 flex flex-wrap gap-3" style={{ animationDelay: "200ms" }}>
             <Link to="/demo" className="btn-primary">
-              Open seeded demo <ArrowRight className="h-4 w-4" />
+              Open the finished example <ArrowRight className="h-4 w-4" />
             </Link>
             <Link to="/app" className="btn-ghost">
-              Enter workspace
+              Paste your own links
             </Link>
           </div>
         </div>
@@ -72,8 +72,8 @@ export function LandingPage() {
         <div>
           <h2 className="font-display text-3xl text-ivory-50">Five-stage workflow</h2>
           <p className="mt-2 max-w-2xl text-sm text-ivory-300/55">
-            Every control is wired to a real backend. Demo mode uses labeled synthetic data;
-            live mode requires consented profile text and an LLM key.
+            From pasting two links to the final rankings. The only sources are the person's
+            public LinkedIn and public Instagram.
           </p>
         </div>
         <ol className="grid gap-4 md:grid-cols-5">

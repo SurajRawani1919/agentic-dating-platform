@@ -1,26 +1,31 @@
-import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { api } from "../api/client";
+import { usePeople } from "../api/hooks";
+import { SampleNotice } from "../components/SampleNotice";
 import { StatusBadge } from "../components/StatusBadge";
 
 export function ParticipantsPage() {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["participants"],
-    queryFn: () => api.participants.list(1, 100),
-  });
+  const { data, isLoading, error } = usePeople();
+  const items = data?.items ?? [];
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="font-display text-4xl text-ivory-50">Participants</h1>
-        <p className="mt-2 text-sm text-ivory-300/55">
-          Directory of consenting participants. Synthetic demo profiles are labeled.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="font-display text-4xl text-ivory-50">Profiles</h1>
+          <p className="mt-2 text-sm text-ivory-300/55">
+            {items.length} {items.length === 1 ? "person" : "people"}, each read from a LinkedIn
+            and a public Instagram. Open one to see what their agent found.
+          </p>
+        </div>
+        <Link className="btn-primary" to="/app">
+          Add people
+        </Link>
       </div>
+      {data?.isSample && <SampleNotice />}
       {isLoading && <p className="animate-pulse-soft text-sm text-ivory-300/50">Loading…</p>}
       {error && <p className="text-sm text-amber-300">{(error as Error).message}</p>}
-      <div className="grid gap-3 sm:grid-cols-2">
-        {(data?.items ?? []).map((p) => (
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {items.map((p) => (
           <Link
             key={p.id}
             to={`/participants/${p.id}`}
@@ -28,25 +33,30 @@ export function ParticipantsPage() {
           >
             <div className="flex items-start justify-between gap-3">
               <h2 className="font-display text-2xl text-ivory-50">{p.display_name}</h2>
-              <div className="flex flex-col items-end gap-1">
-                {p.is_synthetic ? (
-                  <StatusBadge label="Synthetic demo" tone="demo" />
-                ) : (
-                  <StatusBadge label="Submitted" tone="neutral" />
-                )}
-                <StatusBadge label={p.source_verification_status} />
-              </div>
+              {p.is_synthetic ? (
+                <StatusBadge label="Synthetic" tone="warn" />
+              ) : (
+                <StatusBadge
+                  label={p.has_analysis ? "Analyzed" : "Pending"}
+                  tone={p.has_analysis ? "good" : "warn"}
+                />
+              )}
             </div>
-            <p className="mt-3 text-xs text-ivory-300/45">
-              Consent: {p.consent_status} · Analysis: {p.has_analysis ? "yes" : "pending"}
+            <p className="mt-2 line-clamp-2 min-h-[2.5rem] text-sm text-ivory-300/55">
+              {p.headline || "Open to see the analysis"}
+            </p>
+            <p className="mt-3 text-xs text-ivory-300/35">
+              {p.sources
+                .map((s) => `${s.source_type}: ${s.acquisition_status.replace(/_/g, " ")}`)
+                .join(" · ")}
             </p>
           </Link>
         ))}
       </div>
-      {!isLoading && !data?.items.length && (
+      {!isLoading && !items.length && (
         <p className="text-sm text-ivory-300/40">
-          Empty directory. <Link className="text-champagne-400" to="/demo">Load demo</Link> or{" "}
-          <Link className="text-champagne-400" to="/app">add a participant</Link>.
+          Nobody here yet. <Link className="text-champagne-400" to="/app">Add people</Link> by
+          pasting their links.
         </p>
       )}
     </div>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
@@ -32,7 +33,7 @@ async def run_date(
     db: Session,
     session: DateSession,
     *,
-    cancel_event: asyncio.Event | None = None,
+    cancel_event: threading.Event | None = None,
     force_deterministic: bool = False,
 ) -> DateSession:
     settings = get_settings()
@@ -72,6 +73,7 @@ async def run_date(
             "message": m.message,
             "question": m.question,
             "intent": m.intent,
+            "referenced_interests": list(m.referenced_interests or []),
         }
         for m in existing
     ]
@@ -123,17 +125,14 @@ async def run_date(
                 "message": msg.message,
                 "question": msg.question,
                 "intent": msg.intent,
+                "referenced_interests": list(msg.referenced_interests),
             }
         )
 
-    # Independent evaluations — each agent only uses own profile + transcript
-    peer_interests_a = agent_b._interest_labels()
-    peer_interests_b = agent_a._interest_labels()
-    eval_a, _, _ = await agent_a.evaluate(
-        transcript, peer_interests_a, force_deterministic=force_deterministic
-    )
-    eval_b, _, _ = await agent_b.evaluate(
-        transcript, peer_interests_b, force_deterministic=force_deterministic
+    # Independent verdicts — each agent judges from its own profile + the transcript only
+    (eval_a, _, _), (eval_b, _, _) = await asyncio.gather(
+        agent_a.evaluate(transcript, b.display_name, force_deterministic=force_deterministic),
+        agent_b.evaluate(transcript, a.display_name, force_deterministic=force_deterministic),
     )
 
     breakdown = compute_session_scores(
@@ -152,10 +151,16 @@ async def run_date(
     session.compatibility_score = breakdown["compatibility_score"]
     session.confidence = breakdown["confidence"]
     session.score_breakdown = breakdown["score_breakdown"]
-    session.date_summary = breakdown["date_summary"]
+    verdicts = " ".join(
+        f"{agent.first_name}'s agent: {verdict}"
+        for agent, verdict in ((agent_a, eval_a.verdict), (agent_b, eval_b.verdict))
+        if verdict
+    )
+    session.date_summary = f"{breakdown['date_summary']} {verdicts}".strip()
     session.status = "completed"
     session.completed_at = datetime.now(timezone.utc)
-    session.is_demo_replay = force_deterministic and not get_settings().llm_configured
+    # Only the seeded synthetic sample is a replay; this conversation just happened.
+    session.is_demo_replay = False
     db.commit()
     db.refresh(session)
     return session
@@ -165,7 +170,7 @@ async def execute_run(
     db_factory,
     run_id: int,
     *,
-    cancel_event: asyncio.Event | None = None,
+    cancel_event: threading.Event | None = None,
     force_deterministic: bool = False,
 ) -> None:
     settings = get_settings()
@@ -247,17 +252,22 @@ async def execute_run(
             )
             run.completed_sessions = done
             run.progress = round(100.0 * done / max(run.session_count, 1), 2)
-            run.error_summary = "; ".join(errors[:10])
+            failures = [
+                f"date {s.id}: {s.error_message}"
+                for s in db.query(DateSession)
+                .filter(DateSession.run_id == run_id, DateSession.status == "failed")
+                .limit(10)
+            ]
+            run.error_summary = "; ".join((errors + failures)[:10])
             if failed and done == 0:
                 run.status = "failed"
-            elif failed:
-                run.status = "completed_with_errors"
             else:
-                run.status = "completed"
+                run.status = "completed_with_errors" if failed else "completed"
                 run.completed_at = datetime.now(timezone.utc)
-                # Aggregate rankings
+                # Rank from every date that did finish, even if a few failed.
                 from app.ranking.engine import aggregate_rankings
 
+                db.commit()
                 aggregate_rankings(db, run_id)
         db.commit()
     finally:

@@ -19,19 +19,26 @@ def get_rankings(
         raise HTTPException(status_code=404, detail="Participant not found")
 
     if run_id is None:
-        run = (
-            db.query(DemoRun)
-            .filter(DemoRun.status.in_(["completed", "completed_with_errors"]))
-            .order_by(DemoRun.id.desc())
+        # Latest finished run in which this person actually dated.
+        latest = (
+            db.query(Ranking.run_id)
+            .join(DemoRun, DemoRun.id == Ranking.run_id)
+            .filter(
+                Ranking.participant_id == participant_id,
+                DemoRun.status.in_(["completed", "completed_with_errors"]),
+            )
+            .order_by(Ranking.run_id.desc())
             .first()
         )
-        if not run:
-            raise HTTPException(status_code=404, detail="No completed run found")
-        run_id = run.id
-    else:
-        run = db.get(DemoRun, run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail="Run not found")
+        if not latest:
+            raise HTTPException(
+                status_code=404,
+                detail="No rankings yet — this person's agent has not been on any dates. "
+                "Run dating from the workspace first.",
+            )
+        run_id = latest[0]
+    elif not db.get(DemoRun, run_id):
+        raise HTTPException(status_code=404, detail="Run not found")
 
     rows = (
         db.query(Ranking)

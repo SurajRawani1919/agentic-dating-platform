@@ -77,9 +77,14 @@ class ProfileAnalysis(Base):
     participant_id: Mapped[int] = mapped_column(
         ForeignKey("participants.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    headline: Mapped[Optional[str]] = mapped_column(String(400), default="", nullable=True)
     summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    needs: Mapped[Any] = mapped_column(JSON, default=list, nullable=True)
     interests: Mapped[Any] = mapped_column(JSON, default=list)
     hobbies: Mapped[Any] = mapped_column(JSON, default=list)
+    core_values: Mapped[Any] = mapped_column(JSON, default=list, nullable=True)
+    personality_traits: Mapped[Any] = mapped_column(JSON, default=list, nullable=True)
+    ideal_date: Mapped[Optional[str]] = mapped_column(Text, default="", nullable=True)
     explicitly_stated_preferences: Mapped[Any] = mapped_column(JSON, default=list)
     communication_clues: Mapped[Any] = mapped_column(JSON, default=list)
     lifestyle_clues: Mapped[Any] = mapped_column(JSON, default=list)

@@ -4,16 +4,26 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models import DateSession, Participant, Ranking
+from app.models import DateSession, Ranking
 from app.services.analysis import latest_analysis, public_analysis_view
+from app.services.heuristics import related
 
+# Session score: how well two people fit each other overall.
 # Initial engineering weights — not scientifically validated.
 WEIGHTS = {
+    "conversation_quality": 0.35,
     "shared_interests": 0.30,
-    "preference_alignment": 0.30,
-    "conversation_quality": 0.25,
-    "lifestyle_compatibility": 0.15,
+    "needs_and_values": 0.25,
+    "lifestyle_compatibility": 0.10,
 }
+
+# Personal ranking score: how well a candidate fits one specific person.
+# Their own agent's verdict counts most, then the mutual session score,
+# then whether the feeling was returned by the other agent.
+PERSONAL_WEIGHTS = {"own_agent": 0.5, "mutual_session": 0.3, "their_agent": 0.2}
+
+# Label overlap is a keyword-level signal; it never justifies near-certainty.
+_MAX_OVERLAP_CONFIDENCE = 0.8
 
 
 def _labels(items: list[Any]) -> set[str]:
@@ -28,17 +38,34 @@ def _labels(items: list[Any]) -> set[str]:
     return out
 
 
+def _counterparts(a: set[str], b: set[str]) -> list[str]:
+    """Labels in ``a`` that are about the same thing as some label in ``b``."""
+    return sorted(x for x in a if any(related(x, y) for y in b))
+
+
 def _overlap_score(a: set[str], b: set[str]) -> tuple[float, list[str], float]:
     if not a and not b:
         return 0.0, [], 0.15
     if not a or not b:
         return 10.0, [], 0.25
-    shared = sorted(a & b)
-    union = a | b
-    ratio = len(shared) / max(len(union), 1)
+    shared_a, shared_b = _counterparts(a, b), _counterparts(b, a)
+    ratio = (len(shared_a) + len(shared_b)) / (len(a) + len(b))
     score = min(100.0, 20.0 + ratio * 80.0)
-    confidence = min(1.0, 0.3 + 0.1 * len(shared) + 0.05 * min(len(a), len(b)))
-    return score, shared, confidence
+    confidence = min(_MAX_OVERLAP_CONFIDENCE, 0.3 + 0.1 * len(shared_a) + 0.05 * min(len(a), len(b)))
+    return score, shared_a, confidence
+
+
+def _needs_fit(
+    needs_a: set[str], offer_a: set[str], needs_b: set[str], offer_b: set[str]
+) -> tuple[float, list[str], float]:
+    """How far each person's needs are answered by what the other brings."""
+    if not needs_a and not needs_b:
+        return 0.0, [], 0.15
+    met_a, met_b = _counterparts(needs_a, offer_b), _counterparts(needs_b, offer_a)
+    ratio = (len(met_a) + len(met_b)) / (len(needs_a) + len(needs_b))
+    score = min(100.0, 20.0 + ratio * 80.0)
+    confidence = min(_MAX_OVERLAP_CONFIDENCE, 0.3 + 0.08 * (len(met_a) + len(met_b)))
+    return score, sorted(set(met_a) | set(met_b)), confidence
 
 
 def compute_session_scores(
@@ -49,22 +76,29 @@ def compute_session_scores(
     eval_b: dict[str, Any],
     transcript: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    interests_a = _labels(analysis_a.get("interests")) | _labels(analysis_a.get("hobbies"))
-    interests_b = _labels(analysis_b.get("interests")) | _labels(analysis_b.get("hobbies"))
-    prefs_a = _labels(analysis_a.get("explicitly_stated_preferences")) | _labels(
-        analysis_a.get("relationship_preferences")
-    )
-    prefs_b = _labels(analysis_b.get("explicitly_stated_preferences")) | _labels(
-        analysis_b.get("relationship_preferences")
-    )
-    life_a = _labels(analysis_a.get("lifestyle_clues"))
-    life_b = _labels(analysis_b.get("lifestyle_clues"))
+    def view(analysis: dict[str, Any]) -> tuple[set[str], set[str], set[str], set[str]]:
+        interests = _labels(analysis.get("interests")) | _labels(analysis.get("hobbies"))
+        needs = (
+            _labels(analysis.get("needs"))
+            | _labels(analysis.get("explicitly_stated_preferences"))
+            | _labels(analysis.get("relationship_preferences"))
+        )
+        # What a person brings to a relationship, as far as their profiles show.
+        offer = (
+            interests
+            | _labels(analysis.get("core_values"))
+            | _labels(analysis.get("personality_traits"))
+        )
+        return interests, needs, offer, _labels(analysis.get("lifestyle_clues"))
+
+    interests_a, needs_a, offer_a, life_a = view(analysis_a)
+    interests_b, needs_b, offer_b, life_b = view(analysis_b)
 
     shared_score, shared, shared_conf = _overlap_score(interests_a, interests_b)
-    pref_score, pref_shared, pref_conf = _overlap_score(prefs_a, prefs_b)
+    need_score, needs_met, need_conf = _needs_fit(needs_a, offer_a, needs_b, offer_b)
     life_score, life_shared, life_conf = _overlap_score(life_a, life_b)
 
-    # Reciprocal conversation quality from both agent estimates + turn depth
+    # Reciprocal conversation quality from both agents' verdicts + turn depth
     est_a = float(eval_a.get("compatibility_estimate") or 0)
     est_b = float(eval_b.get("compatibility_estimate") or 0)
     conf_a = float(eval_a.get("confidence") or 0)
@@ -77,29 +111,15 @@ def compute_session_scores(
     if not interests_a or not interests_b:
         insufficient.append("Interest evidence thin on one or both sides")
         shared_conf = min(shared_conf, 0.35)
-    if not prefs_a or not prefs_b:
-        insufficient.append("Explicit preference alignment largely unknown")
-        pref_score = min(pref_score, 35.0)
-        pref_conf = min(pref_conf, 0.3)
+    if not needs_a or not needs_b:
+        insufficient.append("Needs largely unknown on one or both sides")
+        need_score = min(need_score, 35.0)
+        need_conf = min(need_conf, 0.3)
     if not life_a or not life_b:
         insufficient.append("Lifestyle compatibility insufficiently evidenced")
         life_conf = min(life_conf, 0.3)
 
     breakdown = {
-        "shared_interests": {
-            "score": round(shared_score, 2),
-            "weight": WEIGHTS["shared_interests"],
-            "evidence": shared[:8],
-            "uncertainty": round(1 - shared_conf, 2),
-            "insufficient_reason": insufficient[0] if (not interests_a or not interests_b) and insufficient else None,
-        },
-        "preference_alignment": {
-            "score": round(pref_score, 2),
-            "weight": WEIGHTS["preference_alignment"],
-            "evidence": pref_shared[:8],
-            "uncertainty": round(1 - pref_conf, 2),
-            "insufficient_reason": "Missing explicit preferences" if not prefs_a or not prefs_b else None,
-        },
         "conversation_quality": {
             "score": round(convo_score, 2),
             "weight": WEIGHTS["conversation_quality"],
@@ -110,6 +130,20 @@ def compute_session_scores(
             ],
             "uncertainty": round(1 - convo_conf, 2),
             "insufficient_reason": None if transcript else "No transcript",
+        },
+        "shared_interests": {
+            "score": round(shared_score, 2),
+            "weight": WEIGHTS["shared_interests"],
+            "evidence": shared[:8],
+            "uncertainty": round(1 - shared_conf, 2),
+            "insufficient_reason": insufficient[0] if (not interests_a or not interests_b) else None,
+        },
+        "needs_and_values": {
+            "score": round(need_score, 2),
+            "weight": WEIGHTS["needs_and_values"],
+            "evidence": needs_met[:8],
+            "uncertainty": round(1 - need_conf, 2),
+            "insufficient_reason": "Needs unknown" if not needs_a or not needs_b else None,
         },
         "lifestyle_compatibility": {
             "score": round(life_score, 2),
@@ -122,9 +156,9 @@ def compute_session_scores(
 
     total = sum(breakdown[k]["score"] * breakdown[k]["weight"] for k in WEIGHTS)
     confidence = (
-        shared_conf * WEIGHTS["shared_interests"]
-        + pref_conf * WEIGHTS["preference_alignment"]
-        + convo_conf * WEIGHTS["conversation_quality"]
+        convo_conf * WEIGHTS["conversation_quality"]
+        + shared_conf * WEIGHTS["shared_interests"]
+        + need_conf * WEIGHTS["needs_and_values"]
         + life_conf * WEIGHTS["lifestyle_compatibility"]
     )
 
@@ -159,12 +193,56 @@ def compute_session_scores(
         "potential_friction": friction[:12],
         "unanswered_questions": unanswered[:12],
         "date_summary": summary,
-        "positive_evidence": shared[:8] + pref_shared[:4],
+        "positive_evidence": shared[:8] + needs_met[:4],
+    }
+
+
+def personal_fit(sess: DateSession, participant_id: int) -> dict[str, Any]:
+    """How well the other person in ``sess`` fits ``participant_id`` specifically.
+
+    Rankings are personal, so A's ranking of B can differ from B's ranking of A:
+    each side leans on the verdict of its own agent.
+    """
+    is_a = participant_id == sess.participant_a_id
+    own = (sess.agent_a_feedback if is_a else sess.agent_b_feedback) or {}
+    theirs = (sess.agent_b_feedback if is_a else sess.agent_a_feedback) or {}
+    mutual = float(sess.compatibility_score or 0)
+    own_estimate = float(own.get("compatibility_estimate") or mutual)
+    their_estimate = float(theirs.get("compatibility_estimate") or mutual)
+
+    score = (
+        PERSONAL_WEIGHTS["own_agent"] * own_estimate
+        + PERSONAL_WEIGHTS["mutual_session"] * mutual
+        + PERSONAL_WEIGHTS["their_agent"] * their_estimate
+    )
+    confidence = (float(own.get("confidence") or 0) + float(sess.confidence or 0)) / 2.0
+
+    positives = list(
+        dict.fromkeys(
+            list(own.get("shared_interests") or [])
+            + [f"Meets need: {n}" for n in own.get("needs_met") or []]
+        )
+    ) or list(sess.shared_interests or [])
+    return {
+        "score": round(max(0.0, min(100.0, score)), 2),
+        "confidence": round(max(0.0, min(1.0, confidence)), 3),
+        "positive_evidence": positives[:10],
+        "potential_mismatches": list(own.get("potential_friction") or sess.potential_friction or [])[:10],
+        "unanswered_questions": list(own.get("unanswered_questions") or sess.unanswered_questions or [])[:10],
+        "detail": {
+            "score": round(score, 2),
+            "own_agent_estimate": round(own_estimate, 1),
+            "their_agent_estimate": round(their_estimate, 1),
+            "mutual_session_score": round(mutual, 2),
+            "weights": PERSONAL_WEIGHTS,
+            "verdict": own.get("verdict") or own.get("overall_impression") or "",
+            "reasoning": own.get("reasoning") or "",
+        },
     }
 
 
 def aggregate_rankings(db: Session, run_id: int) -> list[Ranking]:
-    """Build personalized rankings from persisted sessions for a run."""
+    """Build each person's ranking of everyone they dated in a run."""
     db.query(Ranking).filter(Ranking.run_id == run_id).delete()
     sessions = (
         db.query(DateSession)
@@ -183,7 +261,7 @@ def aggregate_rankings(db: Session, run_id: int) -> list[Ranking]:
 
     created: list[Ranking] = []
     for pid in sorted(participant_ids):
-        candidates: list[tuple[float, float, int, DateSession]] = []
+        candidates: list[tuple[dict[str, Any], int, DateSession]] = []
         for other in sorted(participant_ids):
             if other == pid:
                 continue
@@ -191,28 +269,21 @@ def aggregate_rankings(db: Session, run_id: int) -> list[Ranking]:
             sess = pair_map.get(key)
             if not sess or sess.compatibility_score is None:
                 continue
-            candidates.append(
-                (
-                    float(sess.compatibility_score),
-                    float(sess.confidence or 0),
-                    other,
-                    sess,
-                )
-            )
+            candidates.append((personal_fit(sess, pid), other, sess))
         # Deterministic sort: score desc, confidence desc, candidate id asc
-        candidates.sort(key=lambda x: (-x[0], -x[1], x[2]))
-        for rank_i, (score, conf, cand_id, sess) in enumerate(candidates, start=1):
+        candidates.sort(key=lambda x: (-x[0]["score"], -x[0]["confidence"], x[1]))
+        for rank_i, (fit, cand_id, sess) in enumerate(candidates, start=1):
             row = Ranking(
                 run_id=run_id,
                 participant_id=pid,
                 candidate_id=cand_id,
                 rank=rank_i,
-                compatibility_score=score,
-                confidence=conf,
-                score_breakdown=sess.score_breakdown or {},
-                positive_evidence=sess.shared_interests or [],
-                potential_mismatches=sess.potential_friction or [],
-                unanswered_questions=sess.unanswered_questions or [],
+                compatibility_score=fit["score"],
+                confidence=fit["confidence"],
+                score_breakdown={**(sess.score_breakdown or {}), "personal_fit": fit["detail"]},
+                positive_evidence=fit["positive_evidence"],
+                potential_mismatches=fit["potential_mismatches"],
+                unanswered_questions=fit["unanswered_questions"],
                 date_session_id=sess.id,
             )
             db.add(row)
